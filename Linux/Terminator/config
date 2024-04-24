@@ -1,0 +1,48 @@
+[global_config]
+  inactive_bg_color_offset = 0.5135135135135135
+  enabled_plugins = SaveLastSessionLayout, LaunchpadBugURLHandler, LaunchpadCodeURLHandler, APTURLHandler
+[keybindings]
+[profiles]
+  [[default]]
+    background_color = "#1c1233"
+    background_darkness = 0.85
+    background_type = transparent
+    cursor_shape = ibeam
+    cursor_fg_color = "#9141ac"
+    cursor_bg_color = "#ee3939"
+    cursor_color_default = False
+    font = Hack Bold 10
+    foreground_color = "#4cd536"
+    show_titlebar = False
+    scrollbar_position = hidden
+    scrollback_lines = 1000
+    palette = "#073642:#dc322f:#859900:#b58900:#268bd2:#d33682:#2aa198:#eee8d5:#007897:#cb4b16:#586e75:#657b83:#839496:#6c71c4:#93a1a1:#fdf6e3"
+    use_system_font = False
+[layouts]
+  [[default]]
+    [[[window0]]]
+      type = Window
+      parent = ""
+    [[[child1]]]
+      type = Terminal
+      parent = window0
+  [[SaveLastSessionLayout]]
+    [[[child0]]]
+      type = Window
+      parent = ""
+      order = 0
+      position = 0:0
+      maximised = False
+      fullscreen = False
+      size = 642, 410
+      title = erdon@INFORMATICA-14:~/Projects/vitacord | 80x24 | pts/1
+      last_active_term = a12798dd-4932-4e54-a28b-fa8cecf7f3f0
+      last_active_window = True
+    [[[terminal1]]]
+      type = Terminal
+      parent = child0
+      order = 0
+      profile = default
+      uuid = a12798dd-4932-4e54-a28b-fa8cecf7f3f0
+      directory = /home/erdon/Projects/vitacord
+[plugins]

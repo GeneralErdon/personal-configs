@@ -1,0 +1,35 @@
+services:
+#? ===========================app Services==========================================
+  #* app Service
+  app_service:
+    container_name: app_service
+    image: app_service
+    build: . # Directory of Dockerfile
+    ports:
+      - 127.0.0.1:8000:8000
+    working_dir: /app
+    volumes:
+      - ./app_service/:/app
+    environment:
+      - DJANGO_DEBUG=false
+      - DBHOST=app_db # Same name as db service
+      - DBPORT=5432
+    depends_on:
+      - app_db
+    restart: unless-stopped
+  #! app Database Service
+  app_db:
+    container_name: app_db
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=app_db
+      - POSTGRES_USER=${POSTGRES_USER} # Uses the .env composer example or ${DBUSER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - app_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+
+volumes:
+  app_data: {}

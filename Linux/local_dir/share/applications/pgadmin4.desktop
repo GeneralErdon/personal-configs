@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=pgAdmin 4
+Exec=/home/erdon/Descargas/pgadmin4-8.4/runtime/node_modules/nw/nwjs/nw /home/erdon/Descargas/pgadmin4-8.4/runtime
+Type=Application
+Icon=/home/erdon/Descargas/pgadmin4-8.4/pkg/linux/pgadmin4-128x128.png
+Categories=Development,Tools;
+Comment=Panel para administrar bases de datos postgres
+Terminal=false
+

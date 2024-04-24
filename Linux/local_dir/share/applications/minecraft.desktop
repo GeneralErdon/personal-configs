@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Legacy Launcher
+Exec=java -jar /home/erdon/.local/bin/LegacyLauncher_legacy.jar
+Type=Application
+Icon=/home/erdon/.local/icons/minecraft.128x128.png
+Categories=Games;
+Comment=Launcher minecraft
+Terminal=false
+

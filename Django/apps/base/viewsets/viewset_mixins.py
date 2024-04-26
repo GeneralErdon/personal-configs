@@ -13,10 +13,12 @@ from rest_framework.serializers import ModelSerializer
 from rest_framework.request import Request
 from rest_framework.decorators import action
 from rest_framework import status
+from rest_framework_simplejwt.models import TokenUser
 import pandas as pd
 from xlsxwriter import Workbook
 from xlsxwriter.worksheet import Worksheet
 
+from apps.base.models import BaseModel
 from apps.base.serializers import SQLSerializer
 
 
@@ -88,7 +90,24 @@ class Implementations(
             ImplementGenericResponses,
             GetQuerysetMixin,
         ):
-    pass
+    
+    def get_request_data(self, request:Request) -> dict[str, Any]:
+        """This request data method is for obtain the "Token user"
+        from the request, that's for the need of obtain the user data
+        that's being sent in the JWT Token, that user is in another database
+
+        Args:
+            request (Request)
+
+        Returns:
+            dict[str, Any]: Returns with Changed_by user id.
+        """
+        user: TokenUser = request.user
+        data:dict[str, Any] = {
+            **request.data,
+            "changed_by": user.id,
+        }
+        return data
 
 
 class RetrieveObjectMixin(
@@ -210,11 +229,7 @@ class CreateObjectMixin(
         ):
     def create(self, request:Request, *args, **kwargs):
 
-        # data = {
-        #     **request.data,
-        #     "changed_by": request.user.id,
-        # }
-        data = request.data
+        data = self.get_request_data(request)
         serializer:ModelSerializer = self.get_serializer(data=data)
         if serializer.is_valid():
             instance = serializer.save()
@@ -230,7 +245,7 @@ class UpdateObjectMixin(
         partial:bool = kwargs.get("partial", False)
         instance:Model = self.get_queryset().filter(pk=pk).first()
 
-        new_data:dict[str, object] = request.data
+        new_data:dict[str, object] = self.get_request_data(request)
 
         serializer:ModelSerializer = self.get_serializer(instance=instance, data=new_data, partial=partial)
         if serializer.is_valid():
@@ -251,9 +266,8 @@ class DestroyObjectMixin(
     that field of theinstance represents its active or deactivated status
     (defaults to "is_active" field)
     """
-    deleted_status = False
 
-    def get_deleted_status(self):
+    def get_deleted_status(self) -> bool | Any:
         """Returns the data type that means a object is destroyed or
         deactivated
 
@@ -264,7 +278,8 @@ class DestroyObjectMixin(
         Returns:
             boolean | Any: defaults to False
         """
-        return False
+        model:BaseModel = self.serializer_class.Meta.model
+        return model.deactivated_status
 
     def get_status_field(self) -> str:
         """This method returns the field name that represents the
@@ -273,9 +288,9 @@ class DestroyObjectMixin(
         for example, the field "status" or the default "is_active" that is default for User model
 
         Returns:
-            str: Defaults to "is_active"
+            str: Defaults to "status"
         """
-        return "is_active"
+        return "status"
 
     def destroy(self, request:Request, pk:str, *args, **kwargs):
 
@@ -294,9 +309,18 @@ class DestroyObjectMixin(
 
 
 class ReportViewMixin:
+    """View mixin for generate reports in excel or CSV
+    
+    - read_only_serializer
+    - sql_serializer: SQLSerializer
+    
+
+    Returns:
+        _type_: _description_
+    """
     read_only_serializer = None
     sql_serializer:SQLSerializer = None
-    use_get_annotate = False #?Para utilizar el self.get_annotate en el reports
+    # use_get_annotate = False #?Para utilizar el self.get_annotate en el reports
 
     def get_filename(self) -> str:
         model_name:str = self.serializer_class.Meta.model.__name__

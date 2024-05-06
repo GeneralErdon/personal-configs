@@ -14,3 +14,4 @@ class MessageManager:
     @staticmethod
     def error(message:str):
         raise NotImplementedError()
+

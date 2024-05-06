@@ -19,7 +19,11 @@ from xlsxwriter import Workbook
 from xlsxwriter.worksheet import Worksheet
 
 from apps.base.models import BaseModel
+from apps.base.pagination import GenericOffsetPagination
 from apps.base.serializers import SQLSerializer
+
+# Adding caching
+from django.core.cache import cache
 
 
 
@@ -91,6 +95,19 @@ class Implementations(
             GetQuerysetMixin,
         ):
     
+    def get_cache_key(self, request:Request):
+        model_name:str = self.serializer_class.Meta.model.__name__
+        endpoint:str = request._request.path
+        params = request.query_params.urlencode()
+        cache_key:str = "{model}-{endpoint}-{params}"\
+            .format(
+                model=model_name.upper(),
+                endpoint=endpoint,
+                params=params
+                )
+        
+        return cache_key
+    
     def get_request_data(self, request:Request) -> dict[str, Any]:
         """This request data method is for obtain the "Token user"
         from the request, that's for the need of obtain the user data
@@ -113,14 +130,28 @@ class Implementations(
 class RetrieveObjectMixin(
             Implementations
         ):
-    # Quizá agregar el decorador del caching?
+    # Caching de low level agregado a la data serializada
     def retrieve(self, request, pk:str, *args, **kwargs):
+        cache_key:str = self.get_cache_key(request=request)
+        if settings.ACTIVE_CACHE and cache_key in cache:
+            #* El cache completo ya se limpia en el save() del modelo
+            # Se activa sólo si el settings tiene el ACTIVE_CACHE True
+            # la llave existe en el cache
+            
+            # retornar el contenido cacheado
+            serialized_cache_data = cache.get(cache_key)
+            
+            return self.get_ok_response(serialized_cache_data)
 
-        obj:QuerySet = self.get_queryset().filter(pk=pk).first()
+        obj:QuerySet|None = self.get_queryset().filter(pk=pk).first()
 
         if obj is not None:
             serializer = self.get_read_only_serializer(instance=obj)
             data = serializer.data
+            
+            if settings.ACTIVE_CACHE:
+                cache.set(cache_key, data, settings.CACHE_LIFETIME)
+                
             return self.get_ok_response(data)
 
         return self.get_not_found_response()
@@ -211,16 +242,46 @@ class ListObjectMixin(
         
         return paged_data, status.HTTP_200_OK
     
+    
+    
+    #! @method_decorator(cache_page(settings.CACHE_LIFETIME) if settings.ACTIVE_CACHE else lambda x: x)
     def list(self, request:Request, *args, **kwargs):
+        cache_key:str = self.get_cache_key(request=request)
+        paginator:GenericOffsetPagination = self.paginator
+        
+        if settings.ACTIVE_CACHE and cache_key in cache:
+            #* El cache completo ya se limpia en el save() del modelo
+            # Se activa sólo si el settings tiene el ACTIVE_CACHE True
+            # la llave existe en el cache
+            
+            # retornar el contenido cacheado
+            # La misma estructura de la paginación
+            serialized_cache_data = cache.get(cache_key)
+            
+            return self.get_ok_response(serialized_cache_data)
+        
+            # serialized_cache_data = self.paginate_queryset(serialized_cache_data)
+            # return self.get_paginated_response(serialized_cache_data)
 
-        # data:QuerySet = self.get_queryset()
+        
         data, status_code = self.get_data(request=request)
         if not status_code == status.HTTP_200_OK:
             return Response(data, status_code)
         
         if data:
             serializer = self.get_read_only_serializer(data, many=True)
-            return self.get_paginated_response(serializer.data)
+            paginated_response:Response = self.get_paginated_response(serializer.data)
+            
+            if settings.ACTIVE_CACHE:
+                # Se activa sólo si el settings tiene el ACTIVE_CACHE True
+                # No importa llamar dos veces serializer.data porque el serializador usa cache tambn
+                # para multiples llamadas al .data
+                
+                response_data = paginated_response.data # Get the paginated response data dict
+                cache.set(cache_key, response_data, settings.CACHE_LIFETIME)
+            
+            # cachear el contenido del serializador
+            return paginated_response
 
         return self.get_not_found_response()
 
@@ -433,7 +494,9 @@ class ReportViewMixin:
 
 
 
-    #! @method_decorator(cache_page(settings.TIEMPO_CACHE) if settings.ACTIVE_CACHE else lambda x: x)
+    # Al reporte de excel si le agrego cache por vista debido a que así 
+    # cacheo la parte de generacion de Excel con Pandas.
+    @method_decorator(cache_page(settings.CACHE_LIFETIME) if settings.ACTIVE_CACHE else lambda x: x)
     @action(methods=["GET"], detail=False)
     def download_report(self, request:Request, *args, **kwargs):
         data, status_code = self.get_data(request=request)

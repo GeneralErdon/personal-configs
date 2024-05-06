@@ -39,8 +39,11 @@ ACTIVE_CACHE = env.bool("DJANGO_ACTIVE_CACHE", True)
 
 CACHES = {
     "default": {
-        "BACKEND":"django.core.cache.backends.filebased.FileBasedCache",
-        "LOCATION": Path(BASE_DIR, "django_cache").resolve()
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": env.str("MESSAGE_BROKER_HOST"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
     }
 }
 
@@ -52,12 +55,12 @@ SWAGGER_SETTINGS = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=12),  
-    'REFRESH_TOKEN_LIFETIME': timedelta(hours=24),
+    # 'ACCESS_TOKEN_LIFETIME': timedelta(hours=12),  
+    # 'REFRESH_TOKEN_LIFETIME': timedelta(hours=24),
 
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
-    'UPDATE_LAST_LOGIN': True,
+    # 'ROTATE_REFRESH_TOKENS': True,
+    # 'BLACKLIST_AFTER_ROTATION': True,
+    # 'UPDATE_LAST_LOGIN': True,
     # Default alghorithm and Signing Key specification
     'SIGNING_KEY': env.str("DJANGO_JWT_SIGNING_KEY"),
     "ALGORITHM": "HS256",
@@ -66,7 +69,8 @@ SIMPLE_JWT = {
 REST_FRAMEWORK = {
 
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        #* Este metodo de autgenticacion no hace query para buscar modelo de User, ideoneo para microservice
+        'rest_framework_simplejwt.authentication.JWTStatelessUserAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         # 'rest_framework.permissions.IsAuthenticated',
@@ -110,7 +114,7 @@ THIRD_PARTY_APPS = [
 MY_APPS = [
     "core",
     "apps.base",
-    "apps.users",
+    "apps.medics",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + MY_APPS
@@ -160,6 +164,7 @@ DATABASES = {
         }
 }
 
+
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
 
@@ -190,7 +195,6 @@ USE_I18N = True
 
 USE_TZ = False
 
-AUTH_USER_MODEL = 'users.User'
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
@@ -218,11 +222,11 @@ if not DEBUG:
     REST_FRAMEWORK = {
 
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework_simplejwt.authentication.JWTStatelessUserAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
-        'rest_framework.permissions.DjangoModelPermissions'
+        # 'rest_framework.permissions.DjangoModelPermissions'
     ),
     'DEFAULT_FILTER_BACKENDS': (
         'rest_framework.filters.SearchFilter',

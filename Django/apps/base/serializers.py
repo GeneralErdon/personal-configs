@@ -48,7 +48,7 @@ class BaseModelSerializer(serializers.ModelSerializer):
         for k, v in attrs.items():
             if k not in unique_fields: continue
             
-            filter_param = {f"{k}__iexact":v}
+            filter_param = {f"{k}__iexact":v} if isinstance(v, str) else {k:v}
             if self.get_model().objects.filter(**filter_param).exists():
                 raise serializers.ValidationError(
                     {k:f'Ya existe este valor único.'})

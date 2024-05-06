@@ -16,7 +16,7 @@ NATURE_CHOICES = (
     (nature_choices.EXTRANJERO, "EXTRANJERO"),
 )
 
-class PersonModelMixin:
+class PersonModelMixin(models.Model): # hay que heredarle el model igual para que funcione xd
     """Mixin made for Models based on persons.
     the Mixin adds the following columns to the model:
     - nature (J, V, E)
@@ -75,6 +75,9 @@ class PersonModelMixin:
     
     def __str__(self) -> str:
         return f'{self.last_name} , {self.first_name}'
+    
+    class Meta: 
+        abstract = True
 
 
 class BaseModel(models.Model):

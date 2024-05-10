@@ -40,7 +40,7 @@ ACTIVE_CACHE = env.bool("DJANGO_ACTIVE_CACHE", True)
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": env.str("MESSAGE_BROKER_HOST"),
+        "LOCATION": env.str("REDIS_HOST"),
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         }
@@ -114,7 +114,6 @@ THIRD_PARTY_APPS = [
 MY_APPS = [
     "core",
     "apps.base",
-    "apps.medics",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + MY_APPS

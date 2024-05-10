@@ -8,6 +8,7 @@ from django.utils.decorators import method_decorator
 from django.http.response import Http404, HttpResponse
 from django.core.exceptions import FieldError, ValidationError
 from django.conf import settings
+from django.core.cache import cache
 from rest_framework.response import Response
 from rest_framework.serializers import ModelSerializer
 from rest_framework.request import Request
@@ -21,9 +22,9 @@ from xlsxwriter.worksheet import Worksheet
 from apps.base.models import BaseModel
 from apps.base.pagination import GenericOffsetPagination
 from apps.base.serializers import SQLSerializer
+from apps.base.utils import RabbitMQManager
 
 # Adding caching
-from django.core.cache import cache
 
 
 
@@ -107,6 +108,12 @@ class Implementations(
                 )
         
         return cache_key
+    
+    def publish_queue_data(self, queue_name:str, data:dict[str, Any]):
+        rabbit_manager = RabbitMQManager()
+        rabbit_manager.publish(queue_name,data)
+        
+        rabbit_manager.close()
     
     def get_request_data(self, request:Request) -> dict[str, Any]:
         """This request data method is for obtain the "Token user"

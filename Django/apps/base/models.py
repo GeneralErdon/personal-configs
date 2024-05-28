@@ -74,7 +74,7 @@ class PersonModelMixin(models.Model): # hay que heredarle el model igual para qu
     )
     
     def __str__(self) -> str:
-        return f'{self.last_name} , {self.first_name}'
+        return f'{self.last_name}, {self.first_name}'
     
     class Meta: 
         abstract = True
@@ -83,22 +83,19 @@ class PersonModelMixin(models.Model): # hay que heredarle el model igual para qu
 class BaseModel(models.Model):
     """
     Base ABSTRACT model that adds the following features:
-    - _deactivated_status (specifies what is the data type of Deactivated record)
+    - deactivated_status (specifies what is the data type of Deactivated record)
     - status (the model property which specifies the status of the record (defaults to boolean))
     - created_date (specifies the date when the record was created)
     - modified_date (specifies the date of the last time the record was modified)
     - deleted_date (specifies the last time the record was deactivated)
+    - changed_by (Especifica quien fue el ultimo ent ocar el registro) (OBLIGATORIO)
     
     - Save method overrided to clear chache on every save
     - Delete methos overrided to not delete but change status to deleted status (_deactivated_status property)
     
     """
     
-    _deactivated_status = False
-    
-    @property
-    def deactivated_status(self) -> bool:
-        return self._deactivated_status
+    deactivated_status = False
     
     
     status = models.BooleanField(
@@ -137,7 +134,7 @@ class BaseModel(models.Model):
     def save(self, *args, **kwargs) -> None:
         self.full_clean()
         super().save(*args, **kwargs)
-        cache.clear() #? Limpia todo el cache
+        # cache.clear() #? Limpia todo el cache
     
     def delete(self, *args, **kwargs) -> tuple[int, dict[str, int]]:
         self.status = self.deactivated_status

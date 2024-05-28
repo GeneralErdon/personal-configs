@@ -2,11 +2,18 @@ from typing import Any, Callable
 import pika
 import json
 from environ import Env
+import datetime as dt
 
 from apps.base.types import PikaCallback_T
 
 
 env:Env = Env()
+
+def calcular_edad(birth_date:dt.date) -> int:
+    # Calculamos la edad actual
+    fecha_actual = dt.datetime.today()
+    edad = fecha_actual.year - birth_date.year - ((fecha_actual.month, fecha_actual.day) < (birth_date.month, birth_date.day))
+    return edad
 
 
 class MessageManager:
@@ -26,7 +33,14 @@ class MessageManager:
     def error(message:str):
         raise NotImplementedError()
 
+
 class RabbitMQManager:
+    """Clase para el manejo de las conexiones con rabbitMQ
+    para funciones de messageBroker.
+    
+    se utiliza para visualización de mensajes en las colas
+    de eventos y publicación de mensajes.
+    """
     def __init__(self):
         self.connection = None
         self.channel = None
@@ -67,7 +81,7 @@ class RabbitMQManager:
             properties=pika.BasicProperties(delivery_mode=2)
         )
     
-    def find_message_with_id(self, queue_name:str, obj_id:int, comparator_func:Callable[[int, dict[str, Any] | Any], bool] = lambda i, m: i == m["id"], callback:PikaCallback_T|None = None) -> Any | None:
+    def find_message_with_id(self, queue_name:str, obj_id:int, auto_ack:bool=True, comparator_func:Callable[[int, dict[str, Any] | Any], bool] = lambda i, m: i == m["id"], callback:PikaCallback_T|None = None) -> Any | None:
         """Funcion para buscar especificamente un mensaje de evento
         en las colas de rabbitMQ mediante la ID de un elemento en el Body.
         Cabe destacar que este elemento en el Body debe ser un formato Json 
@@ -79,6 +93,7 @@ class RabbitMQManager:
         Args:
             queue_name (str): Nombre de la cola a buscar el elemento
             obj_id (int): Id del objetivo que se va a buscar en el mensaje
+            auto_ack (bool): Especifica si hace un basic_ack justo antes de terminar esta funcion.
             comparator_func (Callable[[int, dict[str, Any]  |  Any], bool], optional): Criterio de búsqueda opcional
                 Por defecto tiene una funcion lambda que compara el id con el id del json del mensaje
                 pero la idea es especificar una funcion que retorne un bool y haga una 
@@ -106,7 +121,8 @@ class RabbitMQManager:
                 if callback is not None:
                     callback(self.channel, method_frame, properties, body)
                 # Confirma que se procesó el mensaje correctamente
-                self.channel.basic_ack(method_frame.delivery_tag)
+                if auto_ack:
+                    self.channel.basic_ack(method_frame.delivery_tag)
                 return message
             
             # No es el mensaje que busco, re meto en la cola

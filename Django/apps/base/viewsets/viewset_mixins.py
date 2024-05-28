@@ -8,7 +8,6 @@ from django.utils.decorators import method_decorator
 from django.http.response import Http404, HttpResponse
 from django.core.exceptions import FieldError, ValidationError
 from django.conf import settings
-from django.core.cache import cache
 from rest_framework.response import Response
 from rest_framework.serializers import ModelSerializer
 from rest_framework.request import Request
@@ -18,13 +17,13 @@ from rest_framework_simplejwt.models import TokenUser
 import pandas as pd
 from xlsxwriter import Workbook
 from xlsxwriter.worksheet import Worksheet
-
 from apps.base.models import BaseModel
-from apps.base.pagination import GenericOffsetPagination
 from apps.base.serializers import SQLSerializer
-from apps.base.utils import RabbitMQManager
 
 # Adding caching
+from django.core.cache import cache
+
+from apps.base.utils import RabbitMQManager
 
 
 
@@ -97,6 +96,15 @@ class Implementations(
         ):
     
     def get_cache_key(self, request:Request):
+        """Genera una llave para el cache que se pueda registrar en redis
+        
+
+        Args:
+            request (Request): Request para generar el cache en base a eso
+
+        Returns:
+            str: Genera una llave con la sig nomenclatura: MODELNAME-/endpoint-query_params
+        """
         model_name:str = self.serializer_class.Meta.model.__name__
         endpoint:str = request._request.path
         params = request.query_params.urlencode()
@@ -108,6 +116,42 @@ class Implementations(
                 )
         
         return cache_key
+    
+    def get_cache_pattern(self) -> str:
+        """Función para obtener el patrón de cacheado del que 
+        se van a extraer las llaves coincidentes
+
+        Returns:
+            str: El patrón
+        """
+        model_name:str = self.serializer_class.Meta.model.__name__
+        # endpoint:str = request._request.path.replace("/", "")
+        
+        initial_key = f"{model_name.upper()}-*"
+        return initial_key
+    
+    def clear_cache_patron(self, patron:str):
+        """Elimina las coincidencias de llaves de cache 
+        en base al patrón.
+        por ejemplo el patrón "user-*" va a eliminar
+        todos las coincidencias que comiencen con user-
+
+        Args:
+            patron (str): El patrón del que se extraerán las llaves
+        """
+        cache_keys:list[str] = cache.keys(patron)
+        cache.delete_many(cache_keys)
+        
+    
+    def delete_queue_data(self, queue_name:str, id:int) -> None:
+        
+        rabbit_manager = RabbitMQManager()
+        
+        rabbit_manager.find_message_with_id(
+            queue_name=queue_name,
+            obj_id=id,
+            auto_ack=True,
+            )
     
     def publish_queue_data(self, queue_name:str, data:dict[str, Any]):
         rabbit_manager = RabbitMQManager()
@@ -127,10 +171,12 @@ class Implementations(
             dict[str, Any]: Returns with Changed_by user id.
         """
         user: TokenUser = request.user
-        data:dict[str, Any] = {
-            **request.data,
-            "changed_by": user.id,
-        }
+        
+        # Lo hago así para evitar el despliegue, ya que el 
+        # Request.data podría ser un QueryDict o dict.
+        data = request.data.copy() # una copia del QueryDict o del Dict
+        data["changed_by"] = user.id
+        
         return data
 
 
@@ -254,7 +300,6 @@ class ListObjectMixin(
     #! @method_decorator(cache_page(settings.CACHE_LIFETIME) if settings.ACTIVE_CACHE else lambda x: x)
     def list(self, request:Request, *args, **kwargs):
         cache_key:str = self.get_cache_key(request=request)
-        paginator:GenericOffsetPagination = self.paginator
         
         if settings.ACTIVE_CACHE and cache_key in cache:
             #* El cache completo ya se limpia en el save() del modelo
@@ -295,6 +340,9 @@ class ListObjectMixin(
 class CreateObjectMixin(
             Implementations
         ):
+    
+    
+    
     def create(self, request:Request, *args, **kwargs):
 
         data = self.get_request_data(request)
@@ -302,6 +350,9 @@ class CreateObjectMixin(
         if serializer.is_valid():
             instance = serializer.save()
             obj = self.get_read_only_serializer(instance=instance).data
+            # Clear the cache
+            if settings.ACTIVE_CACHE:
+                self.clear_cache_patron(self.get_cache_pattern())
             return self.get_created_response(obj)
 
         return self.get_bad_request(serializer.errors)
@@ -319,6 +370,9 @@ class UpdateObjectMixin(
         if serializer.is_valid():
             instance = serializer.save()
             data = self.get_read_only_serializer(instance=instance).data
+            # Clear the cache
+            if settings.ACTIVE_CACHE:
+                self.clear_cache_patron(self.get_cache_pattern())
             return self.get_ok_response(data, f"{self.model_name} se ha actualizado exitosamente")
 
         return self.get_bad_request(serializer.errors)
@@ -361,13 +415,17 @@ class DestroyObjectMixin(
         return "status"
 
     def destroy(self, request:Request, pk:str, *args, **kwargs):
+        excludes = {self.get_status_field():self.get_deleted_status()}
 
-        obj:Model|None = self.get_queryset().filter(pk=pk).first()
+        obj:Model|None = self.get_queryset().filter(pk=pk).exclude(**excludes).first()
         if obj is not None:
             # set the attribute of the status to the deleted value
             setattr(obj, self.get_status_field(), self.get_deleted_status())
             obj.save()
             serialized_data = self.get_read_only_serializer(instance=obj).data
+            # Clear the cache
+            if settings.ACTIVE_CACHE:
+                self.clear_cache_patron(self.get_cache_pattern())
             return self.get_ok_response(
                     serialized_data,
                     f"El objeto {self.model_name} desactivado correctamente",

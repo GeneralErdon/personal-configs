@@ -1,7 +1,7 @@
 from rest_framework.routers import DefaultRouter
 
 class CustomRouter(DefaultRouter):
-    """it permits the possibility of execute API regex with optional slash
+    """Añade el trailing slash para evitar los problemas que trae
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

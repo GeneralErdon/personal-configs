@@ -6,11 +6,20 @@ from apps.base.models import BaseModel
 
 
 class BaseReadOnlySerializer(serializers.ModelSerializer):
-    """Read Only serializer that formats the audit datetime fields of the database
+    """Read Only serializer that applies read only to all fields for improve serialization and formats dates
     """
     created_date = serializers.DateTimeField(format="%d-%m-%Y %H:%M:%S", read_only=True)
     modified_date = serializers.DateTimeField(format="%d-%m-%Y %H:%M:%S", read_only=True)
     deleted_date = serializers.DateTimeField(format="%d-%m-%Y %H:%M:%S", read_only=True)
+    
+    def get_fields(self, *args, **kwargs):
+        """Crear los campos como Read Only optimiza la serialización de datos
+        este método es para hacer que todos los fields sean readOnly
+        """
+        fields = super().get_fields(*args, **kwargs)
+        for field in fields:
+            fields[field].read_only = True
+        return fields
 
 
 class BaseModelSerializer(serializers.ModelSerializer):

@@ -1,6 +1,9 @@
 services:
 #? ===========================app Services==========================================
-  #* app Service
+  
+  # ================================================
+  #             App Service
+  # ================================================
   app_service:
     container_name: app_service
     image: app_service
@@ -12,17 +15,20 @@ services:
       - .:/app # Folder of the app in host: workdir docker
     environment:
       - DJANGO_DEBUG=false
-      - DBHOST=app_db # Same name as db service
-      - DBPORT=5432
+      - POSTGRES_HOST=app_db # Same name as db service
+      - POSTGRES_PORT=5432
     depends_on:
       - app_db
     restart: unless-stopped
-  #! app Database Service
+  
+  # ================================================
+  #             Database Service
+  # ================================================
   app_db:
     container_name: app_db
     image: postgres:16
     environment:
-      - POSTGRES_DB=app_db
+      - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER} # Uses the .env composer example or ${DBUSER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
@@ -31,7 +37,9 @@ services:
       - 127.0.0.1:5433:5432
     restart: unless-stopped
   
-  # Other services like Nginx, Redis for cache and RabbitMQ
+  # ================================================
+  #             Nginx Service
+  # ================================================
   nginx:
     image: nginx
     container_name: nginx_service
@@ -41,6 +49,9 @@ services:
     ports:
       - 127.0.0.1:4000:80
   
+  # ================================================
+  #             Redis Cache Service
+  # ================================================
   redis:
     container_name: redis_service
     image: redis:7.2.4-alpine
@@ -55,6 +66,9 @@ services:
       - REDIS_PORT=6379
       - REDIS_DATABASES=16
   
+  # ================================================
+  #             RabbitMQ Service Service
+  # ================================================
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq_service
@@ -63,8 +77,8 @@ services:
       - 127.0.0.1:5672:5672 # Puerto de comunicación AMQP
       - 127.0.0.1:15672:15672 # Puerto de interfaz visual de administracion de rabbitMQ
     environment:
-      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}
-      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS}
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
       - RABBITMQ_NODENAME=rabbit@localhost # Esto para persistir la data
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq/

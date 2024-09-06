@@ -45,6 +45,8 @@ class BaseModelSerializer(serializers.ModelSerializer):
     
     def unique_field_validation(self, attrs:dict):
         """Makes a query if there's any unique value that exists in the database.
+        #! DEPRECATED, LA CONVERSION A MAYUSCULAS NO SE DEBE HACER EN EL CLEAN DEL MODELO
+        #! SE DEBE HACER EN EL SERIALIZADOR
 
         Args:
             attrs (dict): The attrs to be validated with key(field) and value
@@ -63,9 +65,9 @@ class BaseModelSerializer(serializers.ModelSerializer):
                     {k:f'Ya existe este valor único.'})
         
     
-    def validate(self, attrs):
-        self.unique_field_validation(attrs)
-        return super().validate(attrs)
+    # def validate(self, attrs):
+    #     self.unique_field_validation(attrs)
+    #     return super().validate(attrs)
 
 class SQLSerializer:
     def __init__(self, instance:QuerySet|Any, many=True,) -> None:

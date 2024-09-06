@@ -1,10 +1,11 @@
 from apps.base.pagination import GenericOffsetPagination
-from apps.base.viewsets.viewset_mixins import CreateObjectMixin, DestroyObjectMixin, ListObjectMixin, RetrieveObjectMixin, UpdateObjectMixin
+from apps.base.viewsets.viewset_mixins import CreateObjectMixin, DestroyObjectMixin, GetQuerysetMixin, ListObjectMixin, RetrieveObjectMixin, UpdateObjectMixin
 from rest_framework import viewsets
 from rest_framework.serializers import ModelSerializer
 
 
 class GenericModelViewset(
+            GetQuerysetMixin,
             RetrieveObjectMixin,
             ListObjectMixin,
             CreateObjectMixin,
@@ -18,11 +19,12 @@ class GenericModelViewset(
     properties:
     - serializer_class: Serializer
     - read_only_serializer: Serializer
+    - update_serializer: Serializer
     - sql_serializer
     - search_fields: list[str]
-    - select_related_qs: list|tuple 
-    - prefetch_related_qs: list|tuple 
-    - qs_annotate: dict[str, object] 
+    - select_related_fields: list|tuple 
+    - prefetch_related_fields: list|tuple 
+    - annotate_fields: dict[str, object] 
     """
     
     serializer_class:ModelSerializer = None
@@ -33,6 +35,7 @@ class GenericModelViewset(
 
 
 class GenericReadOnlyViewset(
+            GetQuerysetMixin,
             RetrieveObjectMixin,
             ListObjectMixin,
             viewsets.GenericViewSet,
@@ -43,11 +46,12 @@ class GenericReadOnlyViewset(
     properties:
     - serializer_class: Serializer
     - read_only_serializer: Serializer
+    - update_serializer: Serializer
     - sql_serializer
     - search_fields: list[str]
-    - select_related_qs: list|tuple 
-    - prefetch_related_qs: list|tuple 
-    - qs_annotate: dict[str, object] 
+    - select_related_fields: list|tuple 
+    - prefetch_related_fields: list|tuple 
+    - annotate_fields: dict[str, object] 
     """
     
     

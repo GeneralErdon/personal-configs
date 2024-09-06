@@ -1,5 +1,5 @@
 from io import BytesIO
-from typing import Any, Iterable
+from typing import Any
 import datetime as dt
 from django.db.models import QuerySet, Model
 from django.http import QueryDict
@@ -8,6 +8,9 @@ from django.utils.decorators import method_decorator
 from django.http.response import Http404, HttpResponse
 from django.core.exceptions import FieldError, ValidationError
 from django.conf import settings
+import pandas as pd
+from xlsxwriter.workbook import Workbook
+from xlsxwriter.worksheet import Worksheet
 from rest_framework.response import Response
 from rest_framework.serializers import ModelSerializer
 from rest_framework.request import Request
@@ -16,31 +19,70 @@ from rest_framework import status
 from rest_framework_simplejwt.models import TokenUser
 from apps.base.models import BaseModel
 from apps.base.serializers import SQLSerializer
+from apps.base.cache.generic_cache_manager import ViewsetCacheManager
 
 # Adding caching
-from django.core.cache import cache
-
-from apps.base.utils import RabbitMQManager
 
 
-
-class ImplementReadOnlySerializer:
-    """Esta clase es para implementar lo que es un serializador readOnly
-    que estará optimizado para mostrar los datos.
-    """
+# ===== Base Mixins
+class BaseMixin:
+    serializer_class:ModelSerializer = None
     read_only_serializer:ModelSerializer.__class__ = None
-
-    def get_read_only_serializer(self, *args, **kwargs) -> ModelSerializer:
+    update_serializer:ModelSerializer.__class__ = None
+    
+    @property
+    def model_name(self) -> str:
+        """
+        Returns the model name as string
+        """
+        return self.serializer_class.Meta.model.__name__
+    
+    
+    def get_update_serializer(self, *args, **kwargs) -> ModelSerializer:
+        """
+        Devuelve un serializador para los Update y Patch de forma opcional
+        
+        Retorna la instancia del serializador, por lo que se debe pasar por parametros
+        los mismos que un model serializer
+        """
+        
+        return self.update_serializer(*args, **kwargs) if self.update_serializer else self.serializer_class(*args, **kwargs)
+    
+    def get_readonly_serializer(self, *args, **kwargs) -> ModelSerializer:
+        """
+        Obliga la especificacion de un Serializador Read Only.
+        para la visibilización de los datos
+        
+        Retorna la instancia del serializador, por lo que se debe pasar por parametros
+        los mismos que un model serializer
+        """
         assert self.read_only_serializer is not None, "Debe especificar la clase del readOnly Serializer"
         return self.read_only_serializer(*args, **kwargs)
+    
+    def get_model(self) -> Model.__class__:
+        """
+        Returns the model class from the serializer_class
+        """
+        return self.serializer_class.Meta.model
 
+    def get_request_data(self, request:Request) -> dict[str, Any]:
+        """Metodo para obtener la data del request y colocarle el usuario que lo envió
+        en el campo de "changed_by"
 
-class ImplementGenericResponses:
+        Args:
+            request (Request)
 
-    @property
-    def model_name(self):
-        return self.serializer_class.Meta.model.__name__
-
+        Returns:
+            dict[str, Any]: Returns with Changed_by user id.
+        """
+        user: TokenUser = request.user
+        data = request.data.copy() # una copia del QueryDict o del Dict
+        data["changed_by"] = user.id
+        
+        return data
+    # =====================================================================
+    #                           Generic Responses
+    # =====================================================================
     def get_not_found_response(self, message:str = None) -> Response:
         return Response({
             "message": message or "No se han encontrado resultados"
@@ -64,161 +106,76 @@ class ImplementGenericResponses:
         }, status=status.HTTP_400_BAD_REQUEST)
 
 
-class GetQuerysetMixin:
+
+class GetQuerysetMixin(BaseMixin):
     """Mixin para optimizar las consultas del ORM a la Database
     elimina los problemas del N + 1 utilizando el prefetch_related y el select_related
     """
 
-    select_related_qs: list|tuple = tuple()
-    prefetch_related_qs: list|tuple = tuple()
-    qs_annotate: dict[str, object] = {}
-    
-    def get_related_queries(self) -> Iterable[str]:
-        return self.select_related_qs
+    select_related_fields: list|tuple = tuple()
+    prefetch_related_fields: list|tuple = tuple()
+    annotate_fields: dict[str, object] = {}
 
-    def get_prefetch_queries(self) -> Iterable[str]:
-        return self.prefetch_related_qs
+    def get_related_fields(self) -> list[str] | tuple[str]:
+        return self.select_related_fields
     
+    def get_prefetch_fields(self) -> list[str] | tuple[str]:
+        return self.prefetch_related_fields
+
     def get_annotate(self) -> dict[str, object]:
-        return self.qs_annotate
+        return self.annotate_fields
 
     def get_queryset(self) -> QuerySet:
-        model:Model = self.serializer_class.Meta.model
-        qs = model.objects\
-                .select_related(*self.get_related_queries())\
-                .prefetch_related(*self.get_prefetch_queries())\
-                .annotate(**self.get_annotate())
+        """Function returns optimized Queryset using the select_related
+        and prefetch specified in the class
+        Rememeber specify the select_related_fields and prefetch_related_fields properties for optimization
         
+        annotate_fields is optional for annotate functionality
+
+        Returns:
+            QuerySet: Queryset optimized
+        """
+        qs = self.get_model().objects\
+                .select_related(*self.get_related_fields())\
+                .prefetch_related(*self.get_prefetch_fields())\
+                .annotate(**self.get_annotate())
         return qs
 
-class Implementations(
-            ImplementReadOnlySerializer,
-            ImplementGenericResponses,
-            GetQuerysetMixin,
-        ):
+
+class RetrieveObjectMixin(BaseMixin):
     
-    def get_cache_key(self, request:Request):
-        """Genera una llave para el cache que se pueda registrar en redis
-        
-
-        Args:
-            request (Request): Request para generar el cache en base a eso
-
-        Returns:
-            str: Genera una llave con la sig nomenclatura: MODELNAME-/endpoint-query_params
-        """
-        model_name:str = self.serializer_class.Meta.model.__name__
-        endpoint:str = request._request.path
-        params = request.query_params.urlencode()
-        cache_key:str = "{model}-{endpoint}-{params}"\
-            .format(
-                model=model_name.upper(),
-                endpoint=endpoint,
-                params=params
-                )
-        
-        return cache_key
-    
-    def get_cache_data(self, cache_key:str) -> Any | None:
-        """Método para la obtención de los datos del sistema de Cache.
-        Si retorna None, entonces no encontró datos o el caché no está activo.
-
-        Args:
-            cache_key (str): Llave del contenido en el cache
-
-        Returns:
-            Any | None: Data si hay contenido, None si no encontró nada
-        """
-        if not settings.ACTIVE_CACHE: return None
-        return cache.get(cache_key, None)
-    
-    def get_cache_pattern(self) -> str:
-        """Función para obtener el patrón de cacheado del que 
-        se van a extraer las llaves coincidentes
-
-        Returns:
-            str: El patrón
-        """
-        model_name:str = self.serializer_class.Meta.model.__name__
-        # endpoint:str = request._request.path.replace("/", "")
-        
-        initial_key = f"{model_name.upper()}-*"
-        return initial_key
-    
-    def clear_cache_pattern(self, patron:str):
-        """Elimina las coincidencias de llaves de cache 
-        en base al patrón.
-        por ejemplo el patrón "user-*" va a eliminar
-        todos las coincidencias que comiencen con user-
-
-        Args:
-            patron (str): El patrón del que se extraerán las llaves
-        """
-        cache_keys:list[str] = cache.keys(patron)
-        cache.delete_many(cache_keys)
-        
-    
-    def delete_queue_data(self, queue_name:str, id:int) -> None:
-        
-        rabbit_manager = RabbitMQManager()
-        
-        rabbit_manager.find_message_with_id(
-            queue_name=queue_name,
-            obj_id=id,
-            auto_ack=True,
-            )
-    
-    def publish_queue_data(self, queue_name:str, data:dict[str, Any]):
-        rabbit_manager = RabbitMQManager()
-        rabbit_manager.publish(queue_name,data)
-        
-        rabbit_manager.close()
-    
-    def get_request_data(self, request:Request) -> dict[str, Any]:
-        """Metodo para obtener la data del request y colocarle el usuario que lo envió
-        en el campo de "changed_by"
-
-        Args:
-            request (Request)
-
-        Returns:
-            dict[str, Any]: Returns with Changed_by user id.
-        """
-        user: TokenUser = request.user
-        data = request.data.copy() # una copia del QueryDict o del Dict
-        data["changed_by"] = user.id
-        
-        return data
-
-
-class RetrieveObjectMixin(
-            Implementations
-        ):
-    # Caching de low level agregado a la data serializada
     def retrieve(self, request, pk:str, *args, **kwargs):
-        cache_key:str = self.get_cache_key(request=request)
-        # Verifica primero si hay Cache
-        serialized_cache_data = self.get_cache_data(cache_key)
+        # Verifica primero por cache
+        cache_manager = ViewsetCacheManager(self.get_model())
+        cache_key:str = cache_manager.get_cache_key(request=request)
+        serialized_cache_data = cache_manager.get_cache_data(cache_key=cache_key)
         if serialized_cache_data:
             return self.get_ok_response(serialized_cache_data)
         
-
+        # No encontró nada en cache o no estaba activo
         obj:QuerySet|None = self.get_queryset().filter(pk=pk).first()
 
         if obj is not None:
-            serializer = self.get_read_only_serializer(instance=obj)
+            serializer = self.get_readonly_serializer(instance=obj)
             data = serializer.data
             
-            if settings.ACTIVE_CACHE:
-                cache.set(cache_key, data, settings.CACHE_LIFETIME)
-                
+            cache_manager.set_cache_data(cache_key, data, settings.CACHE_LIFETIME)
+            
             return self.get_ok_response(data)
 
         return self.get_not_found_response()
 
-class ListObjectMixin(
-            Implementations
-        ):
+class ListObjectMixin(BaseMixin):
+    special_query_params = (
+            "limit", "offset", "ordering", "search", "exclude", "formato", "page", "page_size"
+        )
+    
+    def get_special_query_params(self) -> list[str] | tuple[str]:
+        """
+        This functions extract a property with query params that will not be
+        used as a filter param, just for special purposes like pagination, etc
+        """
+        return self.special_query_params
     
     def process_value(self, value:str) -> str | bool | None:
         """Función para procesar los valores de un string
@@ -304,9 +261,7 @@ class ListObjectMixin(
             tuple[QuerySet, list]: Todo el queryset, los datos paginados en lista
         """
         query_params = request.query_params
-        excluded_params = (
-            "limit", "offset", "ordering", "search", "exclude", "formato",
-        )
+        excluded_params = self.get_special_query_params()
         
         filtros, excludes = self.get_filtros(query_params, excluded_params)
         
@@ -318,86 +273,78 @@ class ListObjectMixin(
         except (FieldError, ValueError, ValidationError) as err:
             return {"message": err.args[0]}, status.HTTP_400_BAD_REQUEST
         except Http404:
-            return self.get_not_found_response()
+            return {"message": "No se han encontrado resultados"}, status.HTTP_404_NOT_FOUND
         except Exception as err:
             return {"message": "Error desconocido al obtener la data %s" % err.args.__str__()}, status.HTTP_400_BAD_REQUEST
         
         return paged_data, status.HTTP_200_OK
     
-    
-    
-    #! @method_decorator(cache_page(settings.CACHE_LIFETIME) if settings.ACTIVE_CACHE else lambda x: x)
-    def list(self, request:Request, *args, **kwargs):
-        cache_key:str = self.get_cache_key(request=request)
+    def list(self, request: Request, *args, **kwargs):
+        # Instancia el gestor de cache
+        cache_manager = ViewsetCacheManager(self.get_model())
+        cache_key: str = cache_manager.get_cache_key(request=request)
         
         # Verifica primero si hay Cache
-        serialized_cache_data = self.get_cache_data(cache_key)
+        serialized_cache_data = cache_manager.get_cache_data(cache_key=cache_key)
         if serialized_cache_data:
             return self.get_ok_response(serialized_cache_data)
 
-        
+        # Obtiene los datos
         data, status_code = self.get_data(request=request)
         if not status_code == status.HTTP_200_OK:
             return Response(data, status_code)
-        
+
         if data:
-            serializer = self.get_read_only_serializer(data, many=True)
-            paginated_response:Response = self.get_paginated_response(serializer.data)
+            # Serializa los datos
+            serializer = self.get_readonly_serializer(data, many=True)
+            paginated_response: Response = self.get_paginated_response(serializer.data)
+            response_data = paginated_response.data  # Obtener el dict de la respuesta paginada
+            cache_manager.set_cache_data(cache_key, response_data, settings.CACHE_LIFETIME)
             
-            if settings.ACTIVE_CACHE:
-                # Se activa sólo si el settings tiene el ACTIVE_CACHE True
-                
-                response_data = paginated_response.data # Get the paginated response data dict
-                cache.set(cache_key, response_data, settings.CACHE_LIFETIME)
-            
-            # cachear el contenido del serializador
+            # Devuelve la respuesta paginada
             return paginated_response
 
         return self.get_not_found_response()
 
-class CreateObjectMixin(
-            Implementations
-        ):
-    
-    
+
+class CreateObjectMixin(BaseMixin):
     
     def create(self, request:Request, *args, **kwargs):
-
+        cache_manager = ViewsetCacheManager(self.get_model())
         data = self.get_request_data(request)
         serializer:ModelSerializer = self.get_serializer(data=data)
         if serializer.is_valid():
             instance = serializer.save()
-            obj = self.get_read_only_serializer(instance=instance).data
-            # Clear the cache
-            if settings.ACTIVE_CACHE:
-                self.clear_cache_pattern(self.get_cache_pattern())
+            obj = self.get_readonly_serializer(instance=instance).data
+            
+            # Clear the cache for this Model
+            cache_manager.clear_cache_pattern(cache_manager.get_model_cache_pattern())
+            
             return self.get_created_response(obj)
 
         return self.get_bad_request(serializer.errors)
 
-class UpdateObjectMixin(
-            Implementations
-        ):
+class UpdateObjectMixin(BaseMixin):
     def update(self, request:Request, pk:str,  *args, **kwargs):
+        cache_manager = ViewsetCacheManager(self.get_model())
         partial:bool = kwargs.get("partial", False)
         instance:Model = self.get_queryset().filter(pk=pk).first()
 
         new_data:dict[str, object] = self.get_request_data(request)
 
-        serializer:ModelSerializer = self.get_serializer(instance=instance, data=new_data, partial=partial)
+        serializer:ModelSerializer = self.get_update_serializer(instance=instance, data=new_data, partial=partial)
         if serializer.is_valid():
             instance = serializer.save()
-            data = self.get_read_only_serializer(instance=instance).data
-            # Clear the cache
-            if settings.ACTIVE_CACHE:
-                self.clear_cache_pattern(self.get_cache_pattern())
+            data = self.get_readonly_serializer(instance=instance).data
+            
+            # Clear the cache for this Model
+            cache_manager.clear_cache_pattern(cache_manager.get_model_cache_pattern())
+            
             return self.get_ok_response(data, f"{self.model_name} se ha actualizado exitosamente")
 
         return self.get_bad_request(serializer.errors)
 
-class DestroyObjectMixin(
-            Implementations
-        ):
+class DestroyObjectMixin(BaseMixin):
     """Mixin Class for the destroy of the instance
     You need to rewrite the methods "get_deleted_status" if you
     want to stablish what data type means that the object is deactivated
@@ -433,6 +380,7 @@ class DestroyObjectMixin(
         return "status"
 
     def destroy(self, request:Request, pk:str, *args, **kwargs):
+        cache_manager = ViewsetCacheManager(self.get_model())
         excludes = {self.get_status_field():self.get_deleted_status()}
 
         # Excluyo si ya está desactivado
@@ -441,13 +389,187 @@ class DestroyObjectMixin(
             # set the attribute of the status to the deleted value
             setattr(obj, self.get_status_field(), self.get_deleted_status())
             obj.save()
-            serialized_data = self.get_read_only_serializer(instance=obj).data
-            # Clear the cache
-            if settings.ACTIVE_CACHE:
-                self.clear_cache_pattern(self.get_cache_pattern())
+            serialized_data = self.get_readonly_serializer(instance=obj).data
+            # Clear the cache for this Model
+            cache_manager.clear_cache_pattern(cache_manager.get_model_cache_pattern())
             return self.get_ok_response(
                     serialized_data,
                     f"El objeto {self.model_name} desactivado correctamente",
                 )
 
         return self.get_not_found_response()
+
+
+class ReportViewMixin:
+    """View mixin for generate reports in excel or CSV
+    
+    - read_only_serializer
+    - sql_serializer: SQLSerializer
+    
+
+    Returns:
+        _type_: _description_
+    """
+    read_only_serializer = None
+    sql_serializer:SQLSerializer = None
+    # use_get_annotate = False #?Para utilizar el self.get_annotate en el reports
+
+    def get_filename(self) -> str:
+        model_name:str = self.serializer_class.Meta.model.__name__
+        fecha = dt.date.today().strftime("%d-%m-%Y")
+
+
+        return "%s-%s" % (model_name, fecha)
+
+    def get_sql_serializer(self, *args, **kwargs) -> SQLSerializer:
+        assert self.sql_serializer is not None, (
+            'la clase %s debería de contar con un '
+            'serializador sql para la funcion de exportar'
+            'a excel o csv.' % self.basename
+        )
+
+        return self.sql_serializer(*args, **kwargs)
+
+    def estilizar_excel(self, workbook:Workbook, worksheet:Worksheet, df:pd.DataFrame):
+
+        header_format = workbook.add_format({
+            "bg_color": "#FF5400",
+            "bold": True,
+            "border": 1,
+            })
+
+
+
+        for col_num, value in enumerate(df.columns.values):
+            worksheet.write(0, col_num, value, header_format )
+
+        worksheet.autofilter(0, 0, 0, len(df.columns)-1)
+
+        max_row, max_col = df.shape
+
+        # worksheet.conditional_format("A2:A7", options={
+        #     "type":"3_color_scale",
+        #     "min_color": "#1ED760",
+        #     "mid_color": "#0088D2",
+        #     "max_color": "#A95EFF"
+        #     })
+        #worksheet.conditional_format("A2:E7", {"format":header_format})
+
+
+    def generate_excel_file(self, data:QuerySet) -> tuple[bytes, str]:
+        """Función que debe recibir un queryset para generar un excel
+        utilizando pandas, con xlswriter,
+        utiliza también un serializador para el Queryset, que
+        los convierten en listas de diccionarios. para poder
+        transformarlos a dataFrame de pandas.
+
+        https://xlsxwriter.readthedocs.io/working_with_pandas.html
+
+        Args:
+            data (QuerySet): Queryset de algun lado XD
+
+        Returns:
+            tuple[bytes, str]: Retorna los Binarios del archivo excel (para no guardarlo),
+                    y el nombre del archivo
+        """
+        serializer = self.get_sql_serializer(instance=data, many=True)
+        serialized_data = serializer.data
+
+        df = pd.DataFrame(serialized_data)
+        filename = self.get_filename()
+
+        output_bytes = BytesIO()
+
+        #df["created_date"] = df["created_date"].dt.tz_localize(None)
+
+        excel_writer = pd.ExcelWriter(
+            output_bytes, engine="xlsxwriter",
+            date_format="d/mmm/yyyy", datetime_format="d/mmm/yyyy  hh:mm:ss",
+            )
+
+
+        # Escribe el archivo por chunks para ahorrar memoria
+        for _, chunk in enumerate(df.groupby(df.index // 10_000)):
+
+            chunk[1].to_excel(excel_writer=excel_writer, index=False, sheet_name=filename, )
+
+
+        # Estilizado del Excel
+        workbook:Workbook = excel_writer.book
+        worksheet:Worksheet = excel_writer.sheets[filename]
+        self.estilizar_excel(workbook, worksheet, df)
+
+
+        # Estilizar el HEADER de las columnas
+
+
+        # Cierra el archivo
+        excel_writer.close()
+
+        excel_data = output_bytes.getvalue()
+
+        return excel_data, filename
+
+    def generate_csv_file(self, data) -> tuple[bytes, str]:
+        serializer = self.get_sql_serializer()
+        serialized_data = serializer(data)
+        df = pd.DataFrame(serialized_data)
+        filename = self.get_filename()
+
+        output_bytes = BytesIO()
+
+        df.to_csv(output_bytes, ';',)
+
+        return output_bytes.getvalue(), filename
+
+
+
+
+    # Al reporte de excel si le agrego cache por vista debido a que así 
+    # cacheo la parte de generacion de Excel con Pandas.
+    @method_decorator(cache_page(settings.CACHE_LIFETIME) if settings.ACTIVE_CACHE else lambda x: x)
+    @action(methods=["GET"], detail=False)
+    def download_report(self, request:Request, *args, **kwargs):
+        data, status_code = self.get_data(request=request)
+
+        if status_code != status.HTTP_200_OK:
+            return Response(data, status_code)
+
+        formats = {
+            "csv": (self.generate_csv_file, "csv"),
+            "excel": (self.generate_excel_file, "xlsx"),
+            #"grafico": ...,
+        }
+
+        if "formato" in request.query_params:
+            tipo_formato:str = request.query_params["formato"].lower()
+            
+            parser_func = formats.get(tipo_formato, None)
+            
+            if parser_func is None:
+                return Response(
+                    {"message": "Formato no disponible, sólo csv, excel"},
+                    status.HTTP_400_BAD_REQUEST
+                    )
+            
+            parser_func, file_extension = parser_func
+
+            file_data, filename = parser_func(data)
+
+            return HttpResponse(
+                    file_data, 
+                    content_type="text/%s" % file_extension,
+                    headers= {
+                        "Content-Disposition": 'attachment; filename="%s.%s"'
+                        %
+                        (filename, file_extension) }
+                )
+
+
+        excel_response, filename = self.generate_excel_file(data)
+
+        return HttpResponse(
+                excel_response, content_type="text/xlsx",
+                headers= {"Content-Disposition": 'attachment; filename="%s.xlsx"' % filename }
+            )
+

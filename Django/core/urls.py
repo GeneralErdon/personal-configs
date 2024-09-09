@@ -4,7 +4,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from drf_yasg import openapi
 from drf_yasg.views import get_schema_view
-from drf_yasg.generators import OpenAPISchemaGenerator
+from apps.base.openapi import CustomSchemaGenerator
 from rest_framework import permissions
 from rest_framework.authentication import BasicAuthentication
 from apps.users.views import Login, Logout
@@ -21,7 +21,7 @@ schema_view = get_schema_view(
         contact=openapi.Contact(name="Leandro Fermín", email="leandrofermin@gmail.com"),
     ),
     public=True,
-    generator_class=OpenAPISchemaGenerator,
+    generator_class=CustomSchemaGenerator,
     permission_classes=[permissions.IsAdminUser],
     authentication_classes=[BasicAuthentication]
 )

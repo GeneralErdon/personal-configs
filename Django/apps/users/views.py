@@ -7,6 +7,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi as op
 from apps.users.api.serializers.token_obtain import CustomTokenObtainPairSerializer
 from apps.users.api.serializers.user_serializers import UserReadOnlySerializer, UserSerializer
 from apps.users.models import User
@@ -52,6 +54,19 @@ class Logout(generics.GenericAPIView):
                     session.delete()
         
     
+    
+    @swagger_auto_schema(
+        request_body=None,
+        responses={
+            status.HTTP_200_OK: op.Response(
+                description="Logout correcto",
+                schema=op.Schema(
+                        type=op.TYPE_OBJECT,
+                        properties={"message": op.Schema(type=op.TYPE_STRING)},
+                    )
+                )
+        }
+    )
     def post(self, request:Request, *args, **kwargs):
         
         user: User = request.user

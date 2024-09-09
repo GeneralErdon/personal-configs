@@ -51,7 +51,8 @@ CACHE_LIFETIME = 60 * 15 # in seconds
 
 
 SWAGGER_SETTINGS = {
-    'DOC_EXPANSION': 'none'
+    'DOC_EXPANSION': 'none',
+    'DEFAULT_AUTO_SCHEMA_CLASS': 'apps.base.openapi.BaseSwaggerAutoSchema',
 }
 
 SIMPLE_JWT = {

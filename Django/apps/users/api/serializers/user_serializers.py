@@ -1,9 +1,12 @@
 from rest_framework import serializers
 
+from apps.base.serializers import BaseReadOnlySerializer
 from apps.users.models import User
 from apps.users.typing import _TUserValidatedData
 
-class UserReadOnlySerializer(serializers.ModelSerializer):
+class UserReadOnlySerializer(BaseReadOnlySerializer):
+    date_joined = serializers.DateTimeField(format="%d-%m-%Y %H:%M:%S")
+    last_login = serializers.DateTimeField(format="%d-%m-%Y %H:%M:%S")
     class Meta:
         model = User
         exclude = ("password",)
@@ -13,17 +16,6 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = "__all__"
     
-    def validate_groups(self, groups:list[str]):
-        if not self.instance: # if Patch
-            return None
-        
-        return groups
-    def validate_user_permissions(self, perms:list[str]):
-        if not self.instance:
-            return None
-        
-        return perms
-    
     def set_user_password(self, user:User, password:str):
         user.set_password(password)
         user.save()
@@ -31,8 +23,16 @@ class UserSerializer(serializers.ModelSerializer):
     
     
     def create(self, validated_data:_TUserValidatedData) -> User:
+        groups = validated_data.pop("groups", None)
+        perms = validated_data.pop("user_permissions", None)
+        
         user_created = User(**validated_data)
         user_created = self.set_user_password(user_created, validated_data["password"])
+        
+        if groups:
+            user_created.groups.set(groups)
+        if perms:
+            user_created.user_permissions.set(perms)
         
         return user_created
     

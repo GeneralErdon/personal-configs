@@ -1,13 +1,14 @@
 
 
+from typing import Any
 from faker import Faker
+from apps.base.tests import BaseFactory
 from apps.users.models import User
 
-class UsersFactory:
-    faker = Faker()
+class UsersFactory(BaseFactory):
+    model = User
     
-    
-    def get_user_json(self) -> dict[str, str]:
+    def get_json(self) -> dict[str, str]:
         f_name = self.faker.first_name().lower()
         l_name = self.faker.last_name().lower()
         
@@ -15,19 +16,16 @@ class UsersFactory:
             "username": f_name[:3] + l_name[:3] + self.faker.email()[:3],
             "password": "developer123",
             "email": self.faker.email(),
+            "role": self.faker.random.choice(["M", "A", "E"]),
             "is_staff": False,
             "is_superuser": False,
         }
     
-    def create_bulk_users(self, count:int) -> list[User]:
-        users = [ User(**self.get_user_json()) for _ in range(count) ]
-        return User.objects.bulk_create(users)
-    
-    def create_user(self, **extrafields) -> User:
-        data = self.get_user_json()
-        data = {
-            **data,
-            **extrafields,
+    def get_invalid_json(self) -> dict[str, str | int | Any]:
+        return {
+            "role": "G",
+            "username": "pepe",
+            "password": "developer123",
+            "is_staff": False,
+            "is_superuser": False,
         }
-        
-        return User.objects.create_user(**data)

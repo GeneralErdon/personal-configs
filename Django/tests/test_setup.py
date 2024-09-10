@@ -22,9 +22,23 @@ class TestSetup(APITestCase):
             password="developer",
             email=fake.email(),
         )
+        self.medic_user:User = User.objects.create_user(
+            username="medicoUser",
+            password="developer",
+            email=fake.email(),
+            role="M"
+        )
+        self.administrative_user:User = User.objects.create_user(
+            username="adminUser",
+            password="developer",
+            email=fake.email(),
+            role="A"
+        )
         
         
         self.super_token = self.getToken("developer")
+        self.medic_token = self.getToken("medicoUser")
+        self.admin_token = self.getToken("adminUser")
         self.setToken(self.super_token)
         
         return super().setUp()

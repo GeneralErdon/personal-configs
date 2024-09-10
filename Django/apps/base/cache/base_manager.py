@@ -32,7 +32,7 @@ class CacheManager:
         """
         return settings.ACTIVE_CACHE
     
-    def get_model_name(self,) -> str:
+    def get_model_name(self) -> str:
         """Función para obtener el nombre del modelo en MAYUSCULAS
         Returns:
             str
@@ -47,7 +47,7 @@ class CacheManager:
         Returns:
             str: El patrón
         """
-        model_name:str = self.get_model_name(self.model)
+        model_name:str = self.get_model_name()
         initial_key = f"{model_name}-*"
         return initial_key
     

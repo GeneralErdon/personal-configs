@@ -6,8 +6,6 @@ from rest_framework.response import Response
 from django.db.models import Model
 from rest_framework import status
 from apps.base.models import BaseModel
-from apps.users.models import User
-from tests.test_setup import TestSetup
 # Create your tests here.
 
 class BaseFactory:
@@ -75,10 +73,9 @@ class BaseFactory:
         model_class = self.get_model()
         return model_class.objects.create(**data)
 
-
-class CRUDTestCaseMixin:
+class FactoryMixin:
     factory:BaseFactory = None
-    endpoint: str = None
+    endpoint:str = None
     
     def get_factory(self) -> BaseFactory:
         self.assertNotEqual(self.factory, None,"No se ha proporcionado la instancia de factory")
@@ -93,11 +90,15 @@ class CRUDTestCaseMixin:
     def get_model(self) -> Model:
         return self.get_factory().get_model()
     
-    # =====================================================
-    #               TESTING CRUD OKAY
-    # =====================================================
-    
-    # ========= Listing ================
+    @property
+    def model_name(self) -> str:
+        return self.get_model().__name__.upper()
+
+
+class ReadOnlyTestCaseMixin(FactoryMixin):
+    """
+    Test case mixin for read only
+    """
     def test_listing(self):
         factory = self.get_factory()
         factory.create_bulk(120)
@@ -109,11 +110,9 @@ class CRUDTestCaseMixin:
         # status code OK
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         
-        self.Messages.ok("TEST LIST COMPLETED OK ✅")
+        self.Messages.ok(f"TEST LIST {self.model_name} COMPLETED OK ✅")
     
-    # =========== retrieving ==================
-    def test_retrieve_users(self):
-        
+    def test_retrieve(self):
         factory = self.get_factory()
         obj:Model = factory.create()
         
@@ -122,9 +121,13 @@ class CRUDTestCaseMixin:
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertEqual(obj.pk, response.data["id"])
         
-        self.Messages.ok("TEST RETRIEVE COMPLETED OK")
-    
-    # ================ creating ===============
+        self.Messages.ok(f"TEST RETRIEVE {self.model_name} COMPLETED OK ✅")
+
+
+class CreateTestCaseMixin(FactoryMixin):
+    """
+    Test case mixin for create
+    """
     def test_create(self):
         factory = self.get_factory()
         create_data = factory.get_json()
@@ -144,10 +147,13 @@ class CRUDTestCaseMixin:
         created_object = self.get_model().objects.filter(pk=response.data["id"]).first()
         self.assertIsNotNone(created_object)
         
-        self.Messages.ok("TEST CREATE COMPLETED OK ✅")
-    
-    
-    # =========== updating ====================
+        self.Messages.ok(f"TEST CREATE {self.model_name} COMPLETED OK ✅")
+
+
+class UpdateTestCaseMixin(FactoryMixin):
+    """
+    Test case mixin for update
+    """
     def test_update(self):
         factory = self.get_factory()
         obj: Model = factory.create()
@@ -164,9 +170,8 @@ class CRUDTestCaseMixin:
             except KeyError:
                 continue
         
-        self.Messages.ok("TEST UPDATE COMPLETED OK ✅")
+        self.Messages.ok(f"TEST UPDATE {self.model_name} COMPLETED OK ✅")
     
-    # =========== patching ====================
     def test_patch(self):
         factory = self.get_factory()
         obj: Model = factory.create()
@@ -183,9 +188,13 @@ class CRUDTestCaseMixin:
             except KeyError:
                 continue
         
-        self.Messages.ok("TEST PATCH COMPLETED OK ✅")
-    
-    # =========== deleting (logical) ===========
+        self.Messages.ok(f"TEST PATCH {self.model_name} COMPLETED OK ✅")
+
+
+class DeleteTestCaseMixin(FactoryMixin):
+    """
+    Test case mixin for delete
+    """
     def test_delete(self):
         factory = self.get_factory()
         obj: BaseModel = factory.create()
@@ -196,18 +205,35 @@ class CRUDTestCaseMixin:
         
         # Verify logical deletion (status = False)
         obj.refresh_from_db()
-        if isinstance(obj, User):
-            self.assertEqual(obj.is_active, obj.deactivated_status, response.data)
-        else:
-            self.assertEqual(obj.status, obj.deactivated_status, response.data)
+        self.assertEqual(obj.status, obj.deactivated_status, response.data)
         
-        self.Messages.ok("TEST DELETE (LOGICAL) COMPLETED OK ✅")
+        self.Messages.ok(f"TEST DELETE (LOGICAL) {self.model_name} COMPLETED OK ✅")
+
+
+class ReadOnlyErrorTestCaseMixin(FactoryMixin):
+    """
+    Test case mixin for read only errors
+    """
+    def test_retrieve_not_found(self):
+        non_existent_id = 999999  # Un ID que no existe en la base de datos
+        
+        response: Response = self.client.get(self.get_endpoint() + f"/{non_existent_id}/")
+        
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.data)
+        self.assertIn("message", response.data, "No se ha incluido el key de message")
+        
+        self.Messages.ok(f"TEST RETRIEVE NOT FOUND {self.model_name} COMPLETED OK ✅")
     
-    # =====================================================
-    #               TESTING CRUD ERRORS
-    # =====================================================
-    
-    # =========== error 400 (Bad Request) =================
+    def test_method_not_allowed(self):
+        response: Response = self.client.put(self.get_endpoint() + "/", data={})
+        
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED, response.data)
+        self.Messages.ok(f"TEST METHOD NOT ALLOWED {self.model_name} COMPLETED OK ✅")
+
+class CreateErrorTestCaseMixin(FactoryMixin):
+    """
+    Test case mixin for create errors
+    """
     def test_create_bad_request(self):
         factory = self.get_factory()
         invalid_data = factory.get_invalid_json()  # Debes definir este método en tu factory
@@ -217,25 +243,66 @@ class CRUDTestCaseMixin:
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
         self.assertIn("message", response.data, "No se ha incluido el key de message")
         
-        self.Messages.ok("TEST CREATE BAD REQUEST COMPLETED OK ✅")
-    
-    # =========== error 404 (Not Found) ============
-    def test_retrieve_not_found(self):
-        non_existent_id = 999999  # Un ID que no existe en la base de datos
+        self.Messages.ok(f"TEST CREATE BAD REQUEST {self.model_name} COMPLETED OK ✅")
+
+class UpdateErrorTestCaseMixin(FactoryMixin):
+    """
+    Test case mixin for update errors
+    """
+    def test_update_bad_request(self):
+        factory = self.get_factory()
+        obj: Model = factory.create()
+        invalid_data = factory.get_invalid_json()
         
-        response: Response = self.client.get(self.get_endpoint() + f"/{non_existent_id}/")
+        response: Response = self.client.put(self.get_endpoint() + f"/{obj.pk}/", data=invalid_data)
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn("message", response.data, "No se ha incluido el key de message")
+        
+        self.Messages.ok(f"TEST UPDATE BAD REQUEST {self.model_name} COMPLETED OK ✅")
+
+class DeleteErrorTestCaseMixin(FactoryMixin):
+    """
+    Test case mixin for delete errors
+    """
+    def test_delete_not_found(self):
+        non_existent_id = 999999
+        
+        response: Response = self.client.delete(self.get_endpoint() + f"/{non_existent_id}/")
         
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.data)
         self.assertIn("message", response.data, "No se ha incluido el key de message")
         
-        self.Messages.ok("TEST RETRIEVE NOT FOUND COMPLETED OK ✅")
-    
-    # =========== error 405 (Method Not Allowed) ============
-    def test_method_not_allowed(self):
-        response: Response = self.client.put(self.get_endpoint() + "/", data={})
-        
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED, response.data)
-        self.Messages.ok("TEST METHOD NOT ALLOWED COMPLETED OK ✅")
+        self.Messages.ok(f"TEST DELETE NOT FOUND {self.model_name} COMPLETED OK ✅")
+
+class CRUDErrorTestCaseMixin(
+        ReadOnlyErrorTestCaseMixin,
+        CreateErrorTestCaseMixin,
+        UpdateErrorTestCaseMixin,
+        DeleteErrorTestCaseMixin
+    ):
+    """
+    Test case mixin for CRUD errors
+    """
+    pass
+
+class CRUDTestCaseMixin(
+        ReadOnlyTestCaseMixin,
+        CreateTestCaseMixin,
+        UpdateTestCaseMixin,
+        DeleteTestCaseMixin,
+        CRUDErrorTestCaseMixin
+    ):
+    """
+    Test case mixin for CRUD
+    """
+    pass
+
+class ReadOnlyTestCaseMixin(ReadOnlyTestCaseMixin, ReadOnlyErrorTestCaseMixin):
+    """
+    Test case mixin for Read Only
+    """
+    pass
     
     # =========== error 401 (Unauthorized) ============
     # def test_unauthorized(self):

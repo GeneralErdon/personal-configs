@@ -5,7 +5,7 @@ from drf_yasg.utils import no_body
 from drf_yasg import openapi
 from rest_framework.serializers import Serializer
 from rest_framework import status
-from apps.base.viewsets.viewsets_generics import GenericModelViewset, GenericReadOnlyViewset
+from apps.base.viewsets.viewsets_generics import BaseModelViewset, BaseReadOnlyViewset
 
 
 
@@ -82,8 +82,31 @@ class BaseSwaggerAutoSchema(SwaggerAutoSchema):
             return None
 
         return body_override
-    
+    def get_operation_id(self, operation_keys):
+        """
+        Genera un ID de operación más legible para la documentación de Redoc.
+        """
+        # Obtenemos el nombre del modelo (asumimos que es la penúltima clave)
+        model_name = operation_keys[-2].capitalize()
+        
+        # Obtenemos la acción (última clave)
+        action = operation_keys[-1]
+        
+        # Mapeamos las acciones a nombres más legibles
+        action_mapping = {
+            'list': 'List',
+            'create': 'Create',
+            'retrieve': 'Get',
+            'update': 'Update',
+            'partial_update': 'Partial Update',
+            'destroy': 'Delete'
+        }
+        
+        readable_action = action_mapping.get(action, action.capitalize())
+        
+        # Construimos el ID de operación
+        operation_id = f"{model_name} {readable_action}"
+        
+        return operation_id
 class CustomSchemaGenerator(OpenAPISchemaGenerator):
-    
     pass
-    

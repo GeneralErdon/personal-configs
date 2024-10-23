@@ -1,108 +1,131 @@
-from datetime import datetime as dt
+from multiprocessing.managers import BaseManager
 from django.db import models
-# from simple_history.models import HistoricalRecords
 from django.utils.translation import gettext_lazy as _
-from django.core.cache import cache
-from apps.base.constants import sex_choices, nature_choices
-
+from django.utils import timezone
+from phonenumber_field.modelfields import PhoneNumberField
 # Create your models here.
-SEX_CHOICES = (
-    (sex_choices.MALE, 'MASCULINO'),
-    (sex_choices.FEMALE, 'FEMENINO'),
-)
-NATURE_CHOICES = (
-    (nature_choices.VENEZOLANO, "VENEZOLANO"),
-    (nature_choices.JURIDICO, "JURIDICO"),
-    (nature_choices.EXTRANJERO, "EXTRANJERO"),
-)
 
-class PersonModelMixin(models.Model): # hay que heredarle el model igual para que funcione xd
+
+class PersonModelMixin(models.Model):
     """Mixin made for Models based on persons.
     the Mixin adds the following columns to the model:
-    - nature (J, V, E)
-    - identification (the identification document)
+    - personal_id (the identification document)
     - personal_email (the personal use email)
-    - sex (The sex of the person)
+    - gender (The sex of the person)
     - first_name
     - last_name
     
     """
-    nature = models.CharField(
-            max_length=1,
-            verbose_name=_("Identification Nature"),
-            choices=NATURE_CHOICES,
-            default=nature_choices.VENEZOLANO
-        )
-    identification = models.CharField(
-            max_length=15,
-            unique=True,
-            db_index=True,
-            verbose_name= _("Personal identification"),
-            help_text= _("The personal identificator number"),
-        ) 
-    personal_email = models.EmailField(
-            null=True,
-            blank=True,
-            verbose_name=_("Personal Email"),
-            help_text=_("The personal email of this person"),
-        )
+    GENDER_MASCULINE = "M"
+    GENDER_FEMENINE = "F"
+    GENDER_OTHER = "O"
+    GENDER_UNKNOWN = "U"
     
-    sex = models.CharField(
+    personal_id = models.CharField(
+        max_length=20,
+        unique=True,
+        db_index=True,
+        verbose_name= _("Personal identification"),
+        help_text= _("The personal identificator number"),
+    ) 
+    personal_email = models.EmailField(
+        null=True,
+        blank=True,
+        verbose_name=_("Personal Email"),
+        help_text=_("The personal email of this person"),
+    )
+    personal_phone = PhoneNumberField(
+        verbose_name=_("Personal Phone Number"),
+        help_text=_("Personal Phone number of this employee"),
+        null=True, blank=True,
+    )
+    
+    gender = models.CharField(
         max_length=1,
-        choices=SEX_CHOICES,
-        default=sex_choices.MALE,
+        choices=(
+            (GENDER_MASCULINE, "MASCULINE"),
+            (GENDER_FEMENINE, "FEMENINE"),
+            (GENDER_OTHER, "OTHER"),
+            (GENDER_UNKNOWN, "UNKNOWN"),
+        )
     )
     
     birth_date = models.DateField(
         verbose_name=_("Birth date"),
+        help_text=_("The birth date of this person for calculate the age"),
     )
     
     first_name = models.CharField(
-        max_length=120,
+        max_length=150,
         verbose_name=_("First name"),
+        help_text=_("The First name and Second name if exists"),
     ) 
     
     last_name = models.CharField(
-        max_length=120,
+        max_length=150,
         verbose_name=_("Last name"),
+        help_text=_("The last name and Second last name if exists"),
     )
     
     home_address = models.TextField(
         verbose_name=_("Home address"),
+        help_text=_("The actual residency address of this person"),
         null=True,
         blank=True,
     )
     
-    def __str__(self) -> str:
+    @property
+    def age(self) -> int:
+        fecha_actual = timezone.now().date()
+        age = fecha_actual.year - self.birth_date.year - ((fecha_actual.month, fecha_actual.day) < (self.birth_date.month, self.birth_date.day))
+        return age
+    
+    @property
+    def full_name(self) -> str:
         return f'{self.last_name}, {self.first_name}'
+    
+    @property
+    def is_today_birthday(self) -> bool:
+        today = timezone.now().date()
+        return self.birth_date.day == today.day and self.birth_date.month == today.month
+    
+    @property
+    def days_left_birthday(self) -> int:
+        """
+        Returns: The days left until the next birthday as integer
+        """
+        today = timezone.now().date()
+        # Próximo cumpleaños este año
+        next_birthday = self.birth_date.replace(year=today.year)
+        
+        # Si el cumpleaños ya pasó este año, calcular el próximo para el siguiente año
+        if next_birthday < today:
+            next_birthday = self.birth_date.replace(year=today.year + 1)
+        
+        # Calcular la diferencia en días entre hoy y el próximo cumpleaños
+        days_left = (next_birthday - today).days
+        return days_left
+    
+    def __str__(self) -> str:
+        return self.full_name
     
     class Meta: 
         abstract = True
 
-
-class BaseModel(models.Model):
-    """
-    Base ABSTRACT model that adds the following features:
-    - deactivated_status (specifies what is the data type of Deactivated record)
-    - status (the model property which specifies the status of the record (defaults to boolean))
-    - created_date (specifies the date when the record was created)
-    - modified_date (specifies the date of the last time the record was modified)
-    - deleted_date (specifies the last time the record was deactivated)
-    - changed_by (Especifica quien fue el ultimo ent ocar el registro) (OBLIGATORIO)
-    
-    - Save method overrided to clear chache on every save
-    - Delete methos overrided to not delete but change status to deleted status (_deactivated_status property)
-    
-    """
+class StatusMixin(models.Model):
     
     deactivated_status = False
     
-    
     status = models.BooleanField(
-            default=True,
-            verbose_name=_('Status'),
-            help_text=_("Is active✅ / Is not active ❌"),
-        )
+        default=True,
+        verbose_name=_('Status'),
+        help_text=_("Is active✅ / Is not active ❌"),
+    )
+    
+    class Meta:
+        abstract = True
+
+class RegisterDatesMixin(models.Model):
     created_date = models.DateTimeField(
             auto_now=False,
             auto_now_add=True,
@@ -123,22 +146,48 @@ class BaseModel(models.Model):
             verbose_name=_("Deleted date"),
             help_text=_("The last date when the record was deleted or deactivated")
         )
-    changed_by = models.BigIntegerField(
-            # null=False,
-            # blank=False,
+    
+    class Meta:
+        abstract = True
+        verbose_name = 'RegisterDate'
+        verbose_name_plural = 'RegisterDates'
+
+class BaseModel(StatusMixin, RegisterDatesMixin, models.Model):
+    """
+    Base ABSTRACT model that adds the following features:
+    - deactivated_status (specifies what is the data type of Deactivated record)
+    - status (the model property which specifies the status of the record (defaults to boolean))
+    - created_date (specifies the date when the record was created)
+    - modified_date (specifies the date of the last time the record was modified)
+    - deleted_date (specifies the last time the record was deactivated)
+    - changed_by (Especifica quien fue el ultimo ent ocar el registro) (OBLIGATORIO)
+    
+    - Save method overrided to clear chache on every save
+    - Delete methos overrided to not delete but change status to deleted status (_deactivated_status property)
+    
+    """
+    
+    
+    changed_by = models.ForeignKey(
+            to="users.User",
+            on_delete=models.SET_NULL,
+            null=True,
+            blank=False,
             verbose_name=_("Changed by"),
             help_text=_("The last user that touched this record"),
         )
+    
+    objects = BaseManager()
+    
+    # ================================================================
+    #       Configuracion del Simple History
+    # ================================================================
     #TODO Configuración de la auditoría 
     
-    def save(self, *args, **kwargs) -> None:
-        self.full_clean()
-        super().save(*args, **kwargs)
-        # cache.clear() #? Limpia todo el cache
     
     def delete(self, *args, **kwargs) -> tuple[int, dict[str, int]]:
         self.status = self.deactivated_status
-        self.deleted_date = dt.now(tz=None)
+        self.deleted_date = timezone.now().date()
         self.save()
     
     class Meta: 

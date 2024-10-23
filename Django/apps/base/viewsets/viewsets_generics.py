@@ -4,7 +4,7 @@ from rest_framework import viewsets
 from rest_framework.serializers import ModelSerializer
 
 
-class GenericModelViewset(
+class BaseModelViewset(
             GetQuerysetMixin,
             RetrieveObjectMixin,
             ListObjectMixin,
@@ -31,10 +31,9 @@ class GenericModelViewset(
     pagination_class = GenericOffsetPagination
     search_fields: list[str] = None
     
-    
 
 
-class GenericReadOnlyViewset(
+class BaseReadOnlyViewset(
             GetQuerysetMixin,
             RetrieveObjectMixin,
             ListObjectMixin,

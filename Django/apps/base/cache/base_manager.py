@@ -12,8 +12,8 @@ class CacheManager:
     def cache_page():
         return method_decorator(cache_page(settings.CACHE_LIFETIME) if settings.ACTIVE_CACHE else lambda x: x)
     
-    def __init__(self, model:Model) -> None:
-        self.__model:Model = model
+    def __init__(self, model:Model | None = None) -> None:
+        self.__model:Model | None = model
     
     @property
     def model(self) -> Model:
@@ -21,7 +21,7 @@ class CacheManager:
     
     @model.setter
     def model(self, value:Model):
-        assert isinstance(value, Model), "Debe ser un modelo"
+        assert not issubclass(value, Model), "Debe ser un modelo"
         self.__model = value
     
     @property
@@ -32,6 +32,10 @@ class CacheManager:
         """
         return settings.ACTIVE_CACHE
     
+    @staticmethod
+    def model_name_from_model(model:Model) -> str:
+        return model.__name__.upper()
+    
     def get_model_name(self) -> str:
         """Función para obtener el nombre del modelo en MAYUSCULAS
         Returns:
@@ -40,14 +44,17 @@ class CacheManager:
         model_name:str = self.model.__name__.upper()
         return model_name
     
-    def get_model_cache_pattern(self,) -> str:
+    def get_model_cache_pattern(self, model:Model | None = None) -> str:
         """Función para obtener el patrón de cacheado del que 
         se van a extraer las llaves coincidentes
 
         Returns:
             str: El patrón
         """
-        model_name:str = self.get_model_name()
+        if model is not None:
+            model_name:str = model.__name__.upper()
+        else:
+            model_name:str = self.get_model_name()
         initial_key = f"{model_name}-*"
         return initial_key
     

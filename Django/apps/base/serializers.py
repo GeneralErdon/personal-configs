@@ -17,6 +17,10 @@ class GenericReadOnlySerializer(serializers.ModelSerializer):
         fields = super().get_fields(*args, **kwargs)
         for field in fields:
             fields[field].read_only = True
+            if isinstance(fields[field], serializers.DateTimeField):
+                fields[field].format = "%d-%m-%Y %H:%M:%S"
+            elif isinstance(fields[field], serializers.DateField):
+                fields[field].format = "%d-%m-%Y"
         return fields
     def _format_date(self, date:dt.date | None) -> str | None:
         """Formats the date to a pretty format like:
@@ -72,6 +76,13 @@ class BaseReadOnlySerializer(GenericReadOnlySerializer):
 class BaseModelSerializer(serializers.ModelSerializer):
     """Base model serializer
     """
+    
+    def get_fields(self):
+        fields = super().get_fields()
+        for field in fields:
+            if isinstance(fields[field], serializers.DateField):
+                fields[field].input_formats = ["%d-%m-%Y", "%Y-%m-%d"]
+        return fields
     
     def get_model(self) -> BaseModel.__class__:
         """
@@ -157,8 +168,9 @@ class BaseModelSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data: dict[str, Any]) -> BaseModel:
         popped_fields = self.get_manual_fields(validated_data)
-        instance = super().create(validated_data)
+        instance:BaseModel = super().create(validated_data)
         self.handle_manual_fields(instance, popped_fields)
+        instance.refresh_from_db()
         return instance
 
 class BaseUpdateSerializer(BaseModelSerializer):

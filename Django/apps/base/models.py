@@ -1,25 +1,77 @@
-from multiprocessing.managers import BaseManager
+from typing import Iterable
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from phonenumber_field.modelfields import PhoneNumberField
+
+from apps.base.cache.base_manager import CacheManager
+from apps.base.managers import BaseManager
 # Create your models here.
 
+class CacheMixin(models.Model):
+    """Mixin made for Models that need to handle Cache features"""
+    
+    objects = BaseManager()
+    class Meta:
+        abstract = True
+    
+    def save(self, *args, **kwargs) -> None:
+        response = super().save(*args, **kwargs)
+        self.clear_cache()
+        return response
+    
+    # Cache Manager properties
+    @classmethod
+    def get_cache_manager(cls) -> CacheManager:
+        return CacheManager(model=cls)
+    
+    @classmethod
+    def clear_cache(cls) -> None:
+        """
+        Clear the cache pattern for the current model
+        for example user-*
+        """
+        cache_manager = cls.get_cache_manager()
+        cache_manager.clear_cache_pattern(pattern=cache_manager.get_model_cache_pattern())
+    
 
-class PersonModelMixin(models.Model):
+class StatusMixin(CacheMixin):
+    
+    deactivated_status = False
+    
+    status = models.BooleanField(
+        default=True,
+        verbose_name=_('Status'),
+        help_text=_("Is active✅ / Is not active ❌"),
+    )
+    def delete(self, *args, **kwargs) -> None:
+        self.status = self.deactivated_status
+        if hasattr(self, "deleted_date"):
+            self.deleted_date = timezone.now().date()
+        self.save()
+        self.clear_cache()
+    
+    class Meta:
+        abstract = True
+
+
+
+
+class PersonModelMixin(CacheMixin):
     """Mixin made for Models based on persons.
     the Mixin adds the following columns to the model:
+    Fields:
     - personal_id (the identification document)
     - personal_email (the personal use email)
+    - personal_phone (the personal phone number)
     - gender (The sex of the person)
+    - birth_date (The birth date of the person)
     - first_name
     - last_name
-    
     """
     GENDER_MASCULINE = "M"
     GENDER_FEMENINE = "F"
     GENDER_OTHER = "O"
-    GENDER_UNKNOWN = "U"
     
     personal_id = models.CharField(
         max_length=20,
@@ -46,7 +98,6 @@ class PersonModelMixin(models.Model):
             (GENDER_MASCULINE, "MASCULINE"),
             (GENDER_FEMENINE, "FEMENINE"),
             (GENDER_OTHER, "OTHER"),
-            (GENDER_UNKNOWN, "UNKNOWN"),
         )
     )
     
@@ -82,7 +133,7 @@ class PersonModelMixin(models.Model):
     
     @property
     def full_name(self) -> str:
-        return f'{self.last_name}, {self.first_name}'
+        return f'{self.last_name.title()}, {self.first_name.title()}'
     
     @property
     def is_today_birthday(self) -> bool:
@@ -112,20 +163,9 @@ class PersonModelMixin(models.Model):
     class Meta: 
         abstract = True
 
-class StatusMixin(models.Model):
-    
-    deactivated_status = False
-    
-    status = models.BooleanField(
-        default=True,
-        verbose_name=_('Status'),
-        help_text=_("Is active✅ / Is not active ❌"),
-    )
-    
-    class Meta:
-        abstract = True
 
-class RegisterDatesMixin(models.Model):
+
+class RegisterDatesMixin(CacheMixin):
     created_date = models.DateTimeField(
             auto_now=False,
             auto_now_add=True,
@@ -147,12 +187,18 @@ class RegisterDatesMixin(models.Model):
             help_text=_("The last date when the record was deleted or deactivated")
         )
     
+    def delete(self, *args, **kwargs) -> None:
+        if hasattr(self, "status") and hasattr(self, "deactivated_status"):
+            self.status = self.deactivated_status
+        self.deleted_date = timezone.now().date()
+        self.save()
+        self.clear_cache()
     class Meta:
         abstract = True
         verbose_name = 'RegisterDate'
         verbose_name_plural = 'RegisterDates'
 
-class BaseModel(StatusMixin, RegisterDatesMixin, models.Model):
+class BaseModel(StatusMixin, RegisterDatesMixin, CacheMixin,):
     """
     Base ABSTRACT model that adds the following features:
     - deactivated_status (specifies what is the data type of Deactivated record)
@@ -177,7 +223,7 @@ class BaseModel(StatusMixin, RegisterDatesMixin, models.Model):
             help_text=_("The last user that touched this record"),
         )
     
-    objects = BaseManager()
+    
     
     # ================================================================
     #       Configuracion del Simple History
@@ -185,10 +231,16 @@ class BaseModel(StatusMixin, RegisterDatesMixin, models.Model):
     #TODO Configuración de la auditoría 
     
     
+    # def save(self, *args, **kwargs) -> None:
+    #     response = super().save(*args, **kwargs)
+    #     self.clear_cache()
+    #     return response
+    
     def delete(self, *args, **kwargs) -> tuple[int, dict[str, int]]:
         self.status = self.deactivated_status
         self.deleted_date = timezone.now().date()
         self.save()
+        self.clear_cache()
     
     class Meta: 
         abstract = True

@@ -1,5 +1,9 @@
 Put theese files in ~
 
+first, install oh-my-zsh:
+```sh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+```
 .zshrc
 Install this:
 1. zsh-syntax-highlighting

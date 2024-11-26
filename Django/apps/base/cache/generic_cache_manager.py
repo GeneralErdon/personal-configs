@@ -16,4 +16,4 @@ class ViewsetCacheManager(CacheManager):
         model_name = self.get_model_name()
         endpoint = request._request.path
         query_params:str = request.query_params.urlencode()
-        return f"{model_name}-{endpoint}-{query_params}"
+        return f"{model_name}-{endpoint}:{request.user.pk}:{query_params}"
